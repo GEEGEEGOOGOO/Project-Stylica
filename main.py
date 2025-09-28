@@ -1,49 +1,45 @@
-# main.py (Your new backend file)
+# main.py (Corrected Logic)
+
 from fastapi import FastAPI, UploadFile, File
 import uvicorn
 import os
 import google.generativeai as genai
 
-# Import the functions you've already written in your other files
-from yolo_model import load_yolo_model, run_yolo_on_image 
-from beit_model import load_beit_model, run_beit_on_image
+# Your model scripts with the corrected code from the previous step
+from yolo_model import run_yolo_detection # This should return a LIST of cropped images now
+from beit_model import run_beit_classification 
 
 # --- 1. INITIALIZATION ---
 app = FastAPI(title="Stylia AI Engine")
-
-# Load your API Key securely
 genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-
-# Load your models once when the server starts
-print("Loading YOLO model...")
-yolo_model = load_yolo_model("best.pt")
-print("Loading BEiT model...")
-beit_model = load_beit_model("epoch_12.pth")
-print("Models loaded successfully!")
-
+print("Models are being loaded by their respective scripts...")
 
 # --- 2. API ENDPOINT ---
 @app.post("/analyze_outfit/")
 async def analyze_outfit(image: UploadFile = File(...)):
     """
-    This endpoint takes an image, runs it through the CV pipeline,
-    and then gets fashion advice from the Gemini API.
+    This endpoint correctly uses YOLO for cropping and BEiT for classification.
     """
     image_bytes = await image.read()
 
-    # Step A: Run YOLO to get cropped images
-    cropped_clothes = run_yolo_on_image(yolo_model, image_bytes)
+    # Step A: Run YOLO to get a LIST of cropped PIL images
+    # The original yolo code you sent works perfectly for this.
+    list_of_cropped_images = run_yolo_detection(image_bytes)
 
-    # Step B: Run BEiT to classify the cropped images
-    classified_items = {}
-    for part, crop in cropped_clothes.items():
-        classification = run_beit_on_image(beit_model, crop)
-        classified_items[part] = classification
+    if not list_of_cropped_images:
+        return {"error": "No clothing items were detected in the image."}
+
+    # Step B: Loop through each crop and classify it with BEiT
+    identified_items = []
+    for crop in list_of_cropped_images:
+        # Get the specific class name (e.g., "Men__Jeans", "Women__Tops")
+        specific_label = run_beit_classification(crop)
+        identified_items.append(specific_label)
     
-    # Step C: Call Gemini API for analysis and recommendations
+    # Step C: Call Gemini API with the list of identified items
     prompt = f"""
-    Analyze these clothing items: {classified_items}.
-    Based on fashion rules, generate 3 good combinations.
+    A user is wearing the following items: {identified_items}.
+    Analyze this outfit. Based on fashion rules, generate 3 good combinations or style suggestions.
     Respond ONLY with a valid JSON object.
     """
     gemini_model = genai.GenerativeModel('gemini-1.5-flash')
@@ -51,10 +47,9 @@ async def analyze_outfit(image: UploadFile = File(...)):
     
     # Step D: Return the final result
     return {
-        "identified_items": classified_items,
+        "identified_items": identified_items,
         "recommendations": response.text
     }
-
 
 # --- 3. RUN THE SERVER ---
 if __name__ == "__main__":
